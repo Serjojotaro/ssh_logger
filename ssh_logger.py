@@ -5,8 +5,8 @@ import requests
 import re
 
 # ---------- SETTINGS ----------
-TOKEN = ""
-CHAT_ID = ""
+TOKEN = "" # токен вашего бота
+CHAT_ID = "" # айди вашего чата, в который отправлять сообщения 
 
 # ---------- TELEGRAM ----------
 def send(msg):
@@ -59,7 +59,7 @@ def main():
                 pid, user = m.groups()
                 user = user.strip()
                 if pid in sessions:
-                  if user != "root":
+                  if user != "root": # небольшой КОСТЫЛЬ, иначе бот начнёт спамить сообшения об логауте рута
                     send(f"👋 SSH LOGOUT\nUser: {user}\nPID: {pid}\n{ts}")
                     del sessions[pid]
                 continue
