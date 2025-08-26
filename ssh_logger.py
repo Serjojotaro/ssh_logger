@@ -51,7 +51,7 @@ def main():
             if m := RE_OPENED.search(line):
                 pid, user = m.groups()
                 sessions[pid] = user
-                send(f"✅ SSH LOGIN\nUser: {user}\nPID: {pid}\n{ts}")
+                send(f"✅ SSH LOGIN\nUser: {user}\ FROM: {ip}\nPID: {pid}\n{ts}")
                 continue
 
             # Логаут (session closed)
@@ -59,7 +59,7 @@ def main():
                 pid, user = m.groups()
                 user = user.strip()
                 if pid in sessions:
-                  if user != "root": # небольшой КОСТЫЛЬ, иначе бот начнёт спамить сообшения об логауте рута
+                 # if user != "root": # небольшой КОСТЫЛЬ, иначе бот начнёт спамить сообшения об логауте рута. Разкомментить, если начинается спам логаут сообщениями!
                     send(f"👋 SSH LOGOUT\nUser: {user}\nPID: {pid}\n{ts}")
                     del sessions[pid]
                 continue
