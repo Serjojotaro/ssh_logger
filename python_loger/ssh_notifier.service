@@ -1,13 +1,18 @@
 [Unit]
 Description=SSH Notifier to Telegram
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+# Файл с TELEGRAM_TOKEN / TELEGRAM_CHAT_ID, chmod 600 (см. readme)
+EnvironmentFile=-/etc/ssh_notifier.env
 ExecStart=/usr/bin/python3 /usr/bin/ssh_logger.py
 Restart=always
 RestartSec=5
 User=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
-
