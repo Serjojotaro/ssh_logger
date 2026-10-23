@@ -25,6 +25,15 @@ def ts():
     return datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
 
 
+def check_config():
+    # EnvironmentFile=- в unit допускает отсутствие файла; пустые секреты иначе
+    # дают 404 на каждое событие без явной причины в логе
+    missing = [n for n, v in (("TELEGRAM_TOKEN", TOKEN), ("TELEGRAM_CHAT_ID", CHAT_ID)) if not v]
+    if missing:
+        log_err(f"Missing required config: {', '.join(missing)} (set in /etc/ssh_notifier.env); exiting")
+        sys.exit(1)
+
+
 def log_err(msg):
     print(f"[{ts()}] {msg}", file=sys.stderr)
 
@@ -151,6 +160,7 @@ def notify_failed(user, ip):
 
 
 def main():
+    check_config()
     sessions.update(load_state())
     for line in follow():
         if m := RE_CONN.search(line):

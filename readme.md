@@ -49,7 +49,8 @@ LOGOUT и сообщения о неудачных попытках аутент
 - ротация лога (`logrotate`) обрабатывается автоматически;
 - сообщения об ошибках входа от одной пары (user, IP) не чаще одного
   раза в минуту — брутфорс не превращается в спам;
-- ошибки отправки в Telegram пишутся в stderr (видно в `journalctl -u ssh_notifier`).
+- ошибки отправки в Telegram пишутся в stderr (видно в `journalctl -u ssh_notifier`);
+- при пустых `TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID` демон не стартует, а пишет причину в stderr.
 
 **Важно:** на системах без `/var/log/auth.log` (RHEL8+ и свежие Ubuntu/Debian
 с minimal-образом, где всё ведётся в journald) установите `rsyslog` или
