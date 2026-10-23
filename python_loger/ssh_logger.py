@@ -92,7 +92,9 @@ def save_state():
 def open_log(seek_end=False):
     while True:
         try:
-            f = open(LOGFILE, "r")
+            # errors="replace": не-UTF-8 байт в логе (имена юзеров, локаль C под
+            # systemd) иначе роняет демона, а рестарт со seek_end теряет события
+            f = open(LOGFILE, "r", encoding="utf-8", errors="replace")
             # при старте читаем только новые строки; после ротации — с начала
             if seek_end:
                 f.seek(0, 2)
