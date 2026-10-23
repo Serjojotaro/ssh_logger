@@ -21,13 +21,17 @@ IP:   $PAM_RHOST
 Time: $(date "+%Y-%m-%d %H:%M:%S")"
 
 # parse_mode не используется: спецсимволы в имени/IP иначе ломают разметку.
-# --max-time обязателен: без него недоступный Telegram подвешивает логин.
-if ! curl -sf --max-time 10 -o /dev/null \
-    "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-    --data-urlencode chat_id="${CHAT_ID}" \
-    --data-urlencode text="$MESSAGE"; then
-    logger -t ssh-telegram "failed to send notification"
-fi
+# curl в фоне: недоступный Telegram не троттлит логин (pam_exec ждёт только
+# этот скрипт, а не фоновых потомков с вывернутыми в /dev/null fd).
+# --max-time остаётся страховкой, чтобы процесс не висел вечно.
+(
+    if ! curl -sf --max-time 10 -o /dev/null \
+        "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        --data-urlencode chat_id="${CHAT_ID}" \
+        --data-urlencode text="$MESSAGE"; then
+        logger -t ssh-telegram "failed to send notification"
+    fi
+) >/dev/null 2>&1 &
 
 # Ошибка доставки не должна влиять на аутентификацию
 exit 0
