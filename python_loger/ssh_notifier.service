@@ -9,10 +9,15 @@ EnvironmentFile=-/etc/ssh_notifier.env
 ExecStart=/usr/bin/python3 /usr/bin/ssh_logger.py
 Restart=always
 RestartSec=5
+# exit(1) — это отсутствующая конфигурация; рестартить бессмысленно
+RestartPreventExitStatus=1
 User=root
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
+ProtectSystem=strict
+# синхронно STATE_FILE, если переопределён в env
+ReadWritePaths=/var/lib/ssh_notifier
 
 [Install]
 WantedBy=multi-user.target
