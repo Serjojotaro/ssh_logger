@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import json
 import os
+import queue
 import re
 import sys
+import threading
 import time
 import datetime
 import requests
@@ -19,6 +21,12 @@ STATE_FILE = os.environ.get("STATE_FILE", "/var/lib/ssh_notifier/sessions.json")
 # Минимальный интервал между уведомлениями об ошибках входа с одной пары (user, ip)
 FAIL_COOLDOWN = 60
 MAX_TRACKED = 5000  # защита от роста памяти при распределённой атаке
+
+# Глобальное ограничение частоты отправки: при распределённом брутфорсе
+# уникальных (user, ip) много и попарного cooldown мало — отправка уходит
+# в фоновую очередь с общим интервалом между сообщениями.
+SEND_INTERVAL = 1.0  # мин. интервал между сообщениями, сек
+SEND_QUEUE_MAX = 1000  # переполнение очереди — отброс с записью в stderr
 
 
 def ts():
@@ -39,7 +47,13 @@ def log_err(msg):
 
 
 # ---------- TELEGRAM ----------
-def send(msg):
+# Отправка не блокирует чтение лога: сообщения уходят в очередь, а
+# доставкой занимается фоновый поток с общим интервалом SEND_INTERVAL.
+send_queue = queue.Queue(maxsize=SEND_QUEUE_MAX)
+_dropped = 0
+
+
+def _deliver(msg):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     params = {"chat_id": CHAT_ID, "text": msg}
     for attempt in range(3):
@@ -57,6 +71,32 @@ def send(msg):
     return False
 
 
+def _sender_loop():
+    last = 0.0
+    while True:
+        msg = send_queue.get()
+        wait = SEND_INTERVAL - (time.time() - last)
+        if wait > 0:
+            time.sleep(wait)
+        _deliver(msg)
+        last = time.time()
+        send_queue.task_done()
+
+
+def send(msg):
+    # Невозвратный успех — только факт постановки в очередь; при её
+    # переполнении (флуд, недоступный Telegram) сообщение отбрасается.
+    global _dropped
+    try:
+        send_queue.put_nowait(msg)
+        return True
+    except queue.Full:
+        _dropped += 1
+        if _dropped % 100 == 1:
+            log_err(f"Send queue full, {_dropped} notifications dropped")
+        return False
+
+
 # ---------- STATE ----------
 # Активные сессии {pid: user}, переживают рестарт демона
 sessions = {}
@@ -66,15 +106,30 @@ conn_ips = {}
 fail_state = {}
 
 
+def pid_is_sshd(pid):
+    try:
+        with open(f"/proc/{pid}/comm") as c:
+            return c.read().strip() == "sshd"
+    except OSError:
+        return False
+
+
 def load_state():
     try:
         with open(STATE_FILE) as f:
-            return json.load(f)
+            data = json.load(f)
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:
         log_err(f"Cannot read state file: {e}")
         return {}
+    # После reboot или простоя демона PID освобождён либо занят другим
+    # процессом: оставляем только живые процессы sshd, иначе state копит
+    # фантомные сессии и даёт ложные logout-и на переиспользованных PID
+    alive = {p: u for p, u in data.items() if p.isdigit() and pid_is_sshd(p)}
+    if len(alive) < len(data):
+        log_err(f"Dropped {len(data) - len(alive)} stale sessions from state file")
+    return alive
 
 
 def save_state():
@@ -155,14 +210,17 @@ def notify_failed(user, ip):
     msg = f"🚨 SSH FAILED LOGIN\nUser: {user}\nFrom: {ip}\n{ts()}"
     if state and state[1]:
         msg += f"\n(+{state[1]} аналогичных подавлено)"
-    fail_state[key] = [stamp, 0]
+    # cooldown запускаем только если уведомление принято в очередь —
+    # иначе сбой доставки/очереди подавлял бы алерты на весь cooldown
+    if send(msg):
+        fail_state[key] = [stamp, 0]
     for k in [k for k, v in fail_state.items() if stamp - v[0] > FAIL_COOLDOWN]:
         del fail_state[k]
-    send(msg)
 
 
 def main():
     check_config()
+    threading.Thread(target=_sender_loop, daemon=True).start()
     sessions.update(load_state())
     for line in follow():
         if m := RE_CONN.search(line):
@@ -189,7 +247,8 @@ def main():
         if m := RE_CLOSED.search(line):
             pid, user = m.groups()
             # шлём logout только по сессии, которую сами видели открытой
-            if pid in sessions:
+            # и где PID всё ещё принадлежит тому же пользователю
+            if sessions.get(pid) == user:
                 del sessions[pid]
                 conn_ips.pop(pid, None)
                 save_state()
